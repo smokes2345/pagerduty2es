@@ -1,3 +1,11 @@
+Conversion to write to kafka underway
+
+TODO:
+- Implement checkpoint mechanism to keep track of last processed event
+- update docker image
+- implement helm chart
+
+
 PagerDuty2es (elasticsearch) exporter
 =====================================
 
