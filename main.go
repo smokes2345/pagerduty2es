@@ -1,21 +1,23 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"path"
 	"runtime"
 	"strings"
-	"time"
 
-	elasticsearch "github.com/elastic/go-elasticsearch/v7"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	"k8s.io/client-go/util/workqueue"
 
 	"github.com/webdevops/pagerduty2es/config"
+	"github.com/webdevops/pagerduty2es/exporter"
+	"github.com/webdevops/pagerduty2es/sinks"
+	"github.com/webdevops/pagerduty2es/sources"
 )
 
 const (
@@ -26,8 +28,10 @@ const (
 )
 
 var (
+	e         exporter.Exporter
 	argparser *flags.Parser
 	opts      config.Opts
+	outs      []exporter.DataPusher
 
 	// Git version information
 	gitCommit = "<unknown>"
@@ -40,55 +44,79 @@ func main() {
 	log.Infof("starting pagerduty2es v%s (%s; %s; by %v)", gitTag, gitCommit, runtime.Version(), author)
 	log.Info(string(opts.GetJson()))
 
-	log.Infof("init exporter")
-	exporter := PagerdutyElasticsearchExporter{}
-	exporter.Init()
-	exporter.SetScrapeTime(opts.ScrapeTime)
-	exporter.SetPagerdutyDateRange(opts.PagerDuty.Since)
-	exporter.ConnectPagerduty(
-		opts.PagerDuty.AuthToken,
-		&http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyFromEnvironment,
-				DialContext: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext,
-				MaxConnsPerHost:       opts.PagerDuty.MaxConnections,
-				MaxIdleConns:          opts.PagerDuty.MaxConnections,
-				IdleConnTimeout:       60 * time.Second,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-				MaxIdleConnsPerHost:   runtime.GOMAXPROCS(0) + 1,
-			},
-		},
-	)
+	e = exporter.Exporter{}
+	e.ScrapeTime = opts.ScrapeTime
+	e.Queue = *workqueue.New()
 
-	cfg := elasticsearch.Config{
-		Addresses: opts.Elasticsearch.Addresses,
-		Username:  opts.Elasticsearch.Username,
-		Password:  opts.Elasticsearch.Password,
-		APIKey:    opts.Elasticsearch.ApiKey,
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-		},
+	if len(opts.Kafka.Address) > 0 {
+		ctx := context.Background()
+		ks := sinks.KafkaSink{}
+		ks.Init(&sinks.KafkaSinkOpts{
+			Addr:     opts.Kafka.Address,
+			Context:  &ctx,
+			Topic:    "lma_pagerduty",
+			Username: opts.Kafka.Username,
+			Password: opts.Kafka.Password,
+		})
+		e.Sinks = append(e.Sinks, &ks)
 	}
-	exporter.ConnectElasticsearch(cfg, opts.Elasticsearch.Index)
-	exporter.SetElasticsearchBatchCount(opts.Elasticsearch.BatchCount)
-	exporter.SetElasticsearchRetry(opts.Elasticsearch.RetryCount, opts.Elasticsearch.RetryDelay)
 
-	if opts.ScrapeTime.Seconds() > 0 {
-		log.Infof("starting daemon run")
-		exporter.RunDaemon()
+	// log.Infof("init exporter")
+	// exporter := PagerdutyElasticsearchExporter{}
+	// exporter.Init()
+	// exporter.SetScrapeTime(opts.ScrapeTime)
+	// exporter.SetPagerdutyDateRange(opts.PagerDuty.Since)
+	// exporter.ConnectPagerduty(
+	// 	opts.PagerDuty.AuthToken,
+	// 	&http.Client{
+	// 		Transport: &http.Transport{
+	// 			Proxy: http.ProxyFromEnvironment,
+	// 			DialContext: (&net.Dialer{
+	// 				Timeout:   30 * time.Second,
+	// 				KeepAlive: 30 * time.Second,
+	// 			}).DialContext,
+	// 			MaxConnsPerHost:       opts.PagerDuty.MaxConnections,
+	// 			MaxIdleConns:          opts.PagerDuty.MaxConnections,
+	// 			IdleConnTimeout:       60 * time.Second,
+	// 			TLSHandshakeTimeout:   10 * time.Second,
+	// 			ExpectContinueTimeout: 1 * time.Second,
+	// 			MaxIdleConnsPerHost:   runtime.GOMAXPROCS(0) + 1,
+	// 		},
+	// 	},
+	// )
 
-		// daemon mode
-		log.Infof("starting http server on %s", opts.ServerBind)
-		startHttpServer()
-	} else {
-		log.Infof("starting single run")
-		exporter.RunSingle()
-		log.Infof("completed single run")
-	}
+	// cfg := elasticsearch.Config{
+	// 	Addresses: opts.Elasticsearch.Addresses,
+	// 	Username:  opts.Elasticsearch.Username,
+	// 	Password:  opts.Elasticsearch.Password,
+	// 	APIKey:    opts.Elasticsearch.ApiKey,
+	// 	Transport: &http.Transport{
+	// 		Proxy: http.ProxyFromEnvironment,
+	// 	},
+	// }
+	// exporter.ConnectElasticsearch(cfg, opts.Elasticsearch.Index)
+	// exporter.SetElasticsearchBatchCount(opts.Elasticsearch.BatchCount)
+	// exporter.SetElasticsearchRetry(opts.Elasticsearch.RetryCount, opts.Elasticsearch.RetryDelay)
+
+	// if opts.ScrapeTime.Seconds() > 0 {
+	// 	log.Infof("starting daemon run")
+	// 	exporter.RunDaemon()
+
+	// 	// daemon mode
+	// 	log.Infof("starting http server on %s", opts.ServerBind)
+	// 	startHttpServer()
+	// } else {
+	// 	log.Infof("starting single run")
+	// 	exporter.RunSingle()
+	// 	log.Infof("completed single run")
+	// }
+	pd := sources.PagerdutyEventSource{}
+	pd.Init(opts.PagerDuty.AuthToken, opts.PagerDuty.Since, http.DefaultClient)
+	e.Sources = append(e.Sources, &pd)
+	//ctx := context.Background()
+	//workqueue.ParallelizeUntil(ctx, 4, pieces, doWorkPiece, opts)
+	e.RunDaemon()
+	startHttpServer()
 }
 
 // init argparser and parse/validate arguments
@@ -149,5 +177,6 @@ func startHttpServer() {
 	})
 
 	http.Handle("/metrics", promhttp.Handler())
+	log.Infof("Starting server on %s", opts.ServerBind)
 	log.Fatal(http.ListenAndServe(opts.ServerBind, nil))
 }

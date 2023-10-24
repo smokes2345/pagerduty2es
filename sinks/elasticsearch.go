@@ -1,13 +1,11 @@
-package main
+package sinks
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
@@ -15,7 +13,27 @@ import (
 	esapi "github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/webdevops/pagerduty2es/exporter"
 )
+
+type ElasticsearchPusher struct {
+	client *elasticsearch.Client
+}
+
+func NewElasticsearchPusher(client *elasticsearch.Client) *ElasticsearchPusher {
+	return &ElasticsearchPusher{
+		client: client,
+	}
+}
+
+func (ep *ElasticsearchPusher) Push(data []byte) error {
+	// Implement Elasticsearch data push logic here
+	// Use the 'data' to push data to Elasticsearch
+	// Example: _, err := ep.client.Index(...)
+
+	return nil
+}
 
 type (
 	PagerdutyElasticsearchExporter struct {
@@ -37,20 +55,6 @@ type (
 			esRequestRetries *prometheus.CounterVec
 			duration         *prometheus.GaugeVec
 		}
-	}
-
-	ElasticsearchIncident struct {
-		DocumentID string `json:"_id,omitempty"`
-		Timestamp  string `json:"@timestamp,omitempty"`
-		IncidentId string `json:"@incident,omitempty"`
-		*pagerduty.Incident
-	}
-
-	ElasticsearchIncidentLog struct {
-		DocumentID string `json:"_id,omitempty"`
-		Timestamp  string `json:"@timestamp,omitempty"`
-		IncidentId string `json:"@incident,omitempty"`
-		*pagerduty.LogEntry
 	}
 )
 
@@ -154,99 +158,6 @@ func (e *PagerdutyElasticsearchExporter) SetElasticsearchRetry(retryCount int, r
 	e.elasticsearchRetryDelay = retryDelay
 }
 
-func (e *PagerdutyElasticsearchExporter) RunSingle() {
-	e.runScrape()
-}
-
-func (e *PagerdutyElasticsearchExporter) RunDaemon() {
-	go func() {
-		for {
-			e.runScrape()
-			e.sleepUntilNextCollection()
-		}
-	}()
-}
-
-func (e *PagerdutyElasticsearchExporter) sleepUntilNextCollection() {
-	log.Debugf("sleeping %v", e.scrapeTime)
-	time.Sleep(*e.scrapeTime)
-}
-
-func (e *PagerdutyElasticsearchExporter) runScrape() {
-	var wgProcess sync.WaitGroup
-	log.Info("starting scrape")
-
-	since := time.Now().Add(-*e.pagerdutyDateRange).Format(time.RFC3339)
-	listOpts := pagerduty.ListIncidentsOptions{
-		Since: since,
-	}
-	listOpts.Limit = PagerdutyIncidentLimit
-	listOpts.Offset = 0
-
-	esIndexRequestChannel := make(chan *esapi.IndexRequest, e.elasticsearchBatchCount)
-
-	startTime := time.Now()
-
-	// index from channel
-	wgProcess.Add(1)
-	go func() {
-		defer wgProcess.Done()
-
-		bulkIndexRequests := []*esapi.IndexRequest{}
-		for esIndexRequest := range esIndexRequestChannel {
-			bulkIndexRequests = append(bulkIndexRequests, esIndexRequest)
-
-			if len(bulkIndexRequests) >= e.elasticsearchBatchCount {
-				e.doESIndexRequestBulk(bulkIndexRequests)
-				bulkIndexRequests = []*esapi.IndexRequest{}
-			}
-		}
-
-		if len(bulkIndexRequests) >= 1 {
-			e.doESIndexRequestBulk(bulkIndexRequests)
-		}
-	}()
-
-	for {
-		ctx := context.Background()
-		incidentResponse, err := e.pagerdutyClient.ListIncidentsWithContext(ctx, listOpts)
-		if err != nil {
-			panic(err)
-		}
-
-		for _, incident := range incidentResponse.Incidents {
-			// workaround for https://github.com/PagerDuty/go-pagerduty/issues/218
-			contextLogger := log.WithField("incident", incident.ID)
-
-			contextLogger.Debugf("incident %v", incident.ID)
-			e.indexIncident(incident, esIndexRequestChannel)
-
-			listLogOpts := pagerduty.ListIncidentLogEntriesOptions{}
-			incidentLogResponse, err := e.pagerdutyClient.ListIncidentLogEntriesWithContext(ctx, incident.ID, listLogOpts)
-			if err != nil {
-				panic(err)
-			}
-
-			for _, logEntry := range incidentLogResponse.LogEntries {
-				contextLogger.WithField("logEntry", logEntry.ID).Debugf("logEntry %v", logEntry.ID)
-				e.indexIncidentLogEntry(incident, logEntry, esIndexRequestChannel)
-			}
-		}
-
-		if !incidentResponse.More {
-			break
-		}
-		listOpts.Offset += listOpts.Limit
-	}
-	close(esIndexRequestChannel)
-
-	wgProcess.Wait()
-
-	duration := time.Since(startTime)
-	e.prometheus.duration.WithLabelValues().Set(duration.Seconds())
-	log.WithField("duration", duration.String()).Info("finished scraping")
-}
-
 func (e *PagerdutyElasticsearchExporter) indexIncident(incident pagerduty.Incident, callback chan<- *esapi.IndexRequest) {
 	e.prometheus.incident.WithLabelValues().Inc()
 
@@ -255,12 +166,12 @@ func (e *PagerdutyElasticsearchExporter) indexIncident(incident pagerduty.Incide
 		panic(err)
 	}
 
-	esIncident := ElasticsearchIncident{
+	pusherIncident := exporter.PusherIncident{
 		Timestamp:  createTime.Format(time.RFC3339),
 		IncidentId: incident.ID,
 		Incident:   &incident,
 	}
-	incidentJson, _ := json.Marshal(esIncident)
+	incidentJson, _ := json.Marshal(pusherIncident)
 
 	req := esapi.IndexRequest{
 		Index:      e.buildIndexName(createTime),
@@ -288,12 +199,12 @@ func (e *PagerdutyElasticsearchExporter) indexIncidentLogEntry(incident pagerdut
 		panic(err)
 	}
 
-	esLogEntry := ElasticsearchIncidentLog{
+	pusherLogEntry := exporter.PusherIncidentLog{
 		Timestamp:  createTime.Format(time.RFC3339),
 		IncidentId: incident.ID,
 		LogEntry:   &logEntry,
 	}
-	logEntryJson, _ := json.Marshal(esLogEntry)
+	logEntryJson, _ := json.Marshal(pusherLogEntry)
 
 	req := esapi.IndexRequest{
 		Index:      e.buildIndexName(createTime),

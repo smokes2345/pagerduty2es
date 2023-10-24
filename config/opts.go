@@ -19,13 +19,13 @@ type (
 		// PagerDuty settings
 		PagerDuty struct {
 			AuthToken      string        `long:"pagerduty.authtoken"        env:"PAGERDUTY_AUTH_TOKEN"        description:"PagerDuty auth token" required:"true" json:"-"`
-			Since          time.Duration `long:"pagerduty.date-range"       env:"PAGERDUTY_DATE_RANGE"        description:"PagerDuty date range" default:"168h"`
+			Since          time.Duration `long:"pagerduty.date-range"       env:"PAGERDUTY_DATE_RANGE"        description:"PagerDuty date range" default:"1h"`
 			MaxConnections int           `long:"pagerduty.max-connections"  env:"PAGERDUTY_MAX_CONNECTIONS"   description:"Maximum numbers of TCP connections to PagerDuty API (concurrency)" default:"4"`
 		}
 
 		// ElasticSearch settings
 		Elasticsearch struct {
-			Addresses  []string      `long:"elasticsearch.address"      env:"ELASTICSEARCH_ADDRESS"  delim:" "  description:"ElasticSearch urls" required:"true"`
+			Addresses  []string      `long:"elasticsearch.address"      env:"ELASTICSEARCH_ADDRESS"  delim:" "  description:"ElasticSearch urls"`
 			Username   string        `long:"elasticsearch.username"     env:"ELASTICSEARCH_USERNAME"            description:"ElasticSearch username for HTTP Basic Authentication"`
 			Password   string        `long:"elasticsearch.password"     env:"ELASTICSEARCH_PASSWORD"            description:"ElasticSearch password for HTTP Basic Authentication" json:"-"`
 			ApiKey     string        `long:"elasticsearch.apikey"       env:"ELASTICSEARCH_APIKEY"              description:"ElasticSearch base64-encoded token for authorization; if set, overrides username and password" json:"-"`
@@ -33,6 +33,13 @@ type (
 			BatchCount int           `long:"elasticsearch.batch-count"  env:"ELASTICSEARCH_BATCH_COUNT"         description:"Number of documents which should be indexed in one request"  default:"50"`
 			RetryCount int           `long:"elasticsearch.retry-count"  env:"ELASTICSEARCH_RETRY_COUNT"         description:"ElasticSearch request retry count"                           default:"5"`
 			RetryDelay time.Duration `long:"elasticsearch.retry-delay"  env:"ELASTICSEARCH_RETRY_DELAY"         description:"ElasticSearch request delay for reach retry"                 default:"5s"`
+		}
+
+		Kafka struct {
+			Address  string `long:"kafka.address"    env:"KAFKA_ADDRESS"  description:"Address of kafka Server" delim:","`
+			Username string `long:"kafka.username"   env:"KAFKA_USERNAME" description:"Kafka username"`
+			Password string `long:"kafka.password"   env:"KAFKA_PASSWORD" description:"Kafka password"`
+			//Topic     string   `long:"kafka.topic       env:"KAFKA_TOPIC"    description:"Kafka topic"`
 		}
 
 		// general options
