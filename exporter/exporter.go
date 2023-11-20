@@ -1,7 +1,6 @@
 package exporter
 
 import (
-	"encoding/json"
 	"sync"
 	"time"
 
@@ -15,34 +14,44 @@ import (
 const MACHINE_RUN = 1
 const MACHINE_STOP = 0
 
-type (
-	DataPusher interface {
-		Push(data []byte) error
-	}
+type Event interface {
+	//Id() string
+	//String() string
+	//Json() []byte
+	Data() []byte
+}
 
-	PusherIncident struct {
-		DocumentID string `json:"_id,omitempty"`
-		Timestamp  string `json:"@timestamp,omitempty"`
-		IncidentId string `json:"@incident,omitempty"`
-		*pagerduty.Incident
-	}
+type EventSource interface {
+	ScrapeEvents(*workqueue.Type)
+	EventProcessedCallback(string)
+}
 
-	PusherIncidentLog struct {
-		DocumentID string `json:"_id,omitempty"`
-		Timestamp  string `json:"@timestamp,omitempty"`
-		IncidentId string `json:"@incident,omitempty"`
-		*pagerduty.LogEntry
-	}
+type DataPusher interface {
+	Push(data Event) error
+}
 
-	Exporter struct {
-		Sources            []sources.EventSource
-		Sinks              []DataPusher
-		ScrapeTime         time.Duration
-		PagerdutyDateRange int
-		Queue              workqueue.Type
-		BookmarkDB         dynamodb.DynamoDB
-	}
-)
+type PusherIncident struct {
+	DocumentID string `json:"_id,omitempty"`
+	Timestamp  string `json:"@timestamp,omitempty"`
+	IncidentId string `json:"@incident,omitempty"`
+	*pagerduty.Incident
+}
+
+type PusherIncidentLog struct {
+	DocumentID string `json:"_id,omitempty"`
+	Timestamp  string `json:"@timestamp,omitempty"`
+	IncidentId string `json:"@incident,omitempty"`
+	*pagerduty.LogEntry
+}
+
+type Exporter struct {
+	Sources            []EventSource
+	Sinks              []DataPusher
+	ScrapeTime         time.Duration
+	PagerdutyDateRange int
+	Queue              workqueue.Type
+	BookmarkDB         dynamodb.DynamoDB
+}
 
 func (e *Exporter) queueWriter() bool {
 	return func() bool {
@@ -157,28 +166,24 @@ func (e *Exporter) runScrape() {
 	log.WithField("duration", duration.String()).Info("finished scraping")
 }
 
-func (e *Exporter) bookmark(source string, index string) {
-
-}
-
 func (e *Exporter) processItems() bool {
 	for {
-		message, shutdown := e.Queue.Get()
+		event, shutdown := e.Queue.Get()
 
-		bytes, _ := json.Marshal(message)
+		//bytes, _ := json.Marshal(event)
 
 		for _, s := range e.Sinks {
-			err := s.Push(bytes)
+			err := s.Push(event.(sources.PagerdutyEvent))
 			if err != nil {
 				log.Warnf("Error pushing to %T: %s", s, err)
 			}
 		}
 
-		e.Queue.Done(message)
+		e.Queue.Done(event)
 
-		// for _, src := range e.Sources {
-		// 	src.EventProcessedCallback()
-		// }
+		for _, src := range e.Sources {
+			src.EventProcessedCallback(event.(*sources.PagerdutyEvent).Id())
+		}
 
 		if shutdown {
 			return true

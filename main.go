@@ -61,55 +61,6 @@ func main() {
 		e.Sinks = append(e.Sinks, &ks)
 	}
 
-	// log.Infof("init exporter")
-	// exporter := PagerdutyElasticsearchExporter{}
-	// exporter.Init()
-	// exporter.SetScrapeTime(opts.ScrapeTime)
-	// exporter.SetPagerdutyDateRange(opts.PagerDuty.Since)
-	// exporter.ConnectPagerduty(
-	// 	opts.PagerDuty.AuthToken,
-	// 	&http.Client{
-	// 		Transport: &http.Transport{
-	// 			Proxy: http.ProxyFromEnvironment,
-	// 			DialContext: (&net.Dialer{
-	// 				Timeout:   30 * time.Second,
-	// 				KeepAlive: 30 * time.Second,
-	// 			}).DialContext,
-	// 			MaxConnsPerHost:       opts.PagerDuty.MaxConnections,
-	// 			MaxIdleConns:          opts.PagerDuty.MaxConnections,
-	// 			IdleConnTimeout:       60 * time.Second,
-	// 			TLSHandshakeTimeout:   10 * time.Second,
-	// 			ExpectContinueTimeout: 1 * time.Second,
-	// 			MaxIdleConnsPerHost:   runtime.GOMAXPROCS(0) + 1,
-	// 		},
-	// 	},
-	// )
-
-	// cfg := elasticsearch.Config{
-	// 	Addresses: opts.Elasticsearch.Addresses,
-	// 	Username:  opts.Elasticsearch.Username,
-	// 	Password:  opts.Elasticsearch.Password,
-	// 	APIKey:    opts.Elasticsearch.ApiKey,
-	// 	Transport: &http.Transport{
-	// 		Proxy: http.ProxyFromEnvironment,
-	// 	},
-	// }
-	// exporter.ConnectElasticsearch(cfg, opts.Elasticsearch.Index)
-	// exporter.SetElasticsearchBatchCount(opts.Elasticsearch.BatchCount)
-	// exporter.SetElasticsearchRetry(opts.Elasticsearch.RetryCount, opts.Elasticsearch.RetryDelay)
-
-	// if opts.ScrapeTime.Seconds() > 0 {
-	// 	log.Infof("starting daemon run")
-	// 	exporter.RunDaemon()
-
-	// 	// daemon mode
-	// 	log.Infof("starting http server on %s", opts.ServerBind)
-	// 	startHttpServer()
-	// } else {
-	// 	log.Infof("starting single run")
-	// 	exporter.RunSingle()
-	// 	log.Infof("completed single run")
-	// }
 	pd := sources.PagerdutyEventSource{}
 	pd.Init(opts.PagerDuty.AuthToken, opts.PagerDuty.Since, http.DefaultClient)
 	e.Sources = append(e.Sources, &pd)

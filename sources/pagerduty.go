@@ -43,7 +43,11 @@ func (pde *PagerdutyEvent) String() string {
 	return pde.Id()
 }
 
-func (pde *PagerdutyEvent) Json() []byte {
+// func (pde *PagerdutyEvent) Data() *pagerduty.Incident {
+// 	return pde.Event
+// }
+
+func (pde PagerdutyEvent) Data() []byte {
 	pde_json, err := json.Marshal(pde.Event)
 	if err != nil {
 		log.Warnf("Error decoding event %s: %s", pde.Id(), err)
@@ -110,6 +114,11 @@ func (e *PagerdutyEventSource) ScrapeEvents(queue *workqueue.Type) {
 		}
 
 		for _, incident := range incidentResponse.Incidents {
+			if e.lastEvent != nil {
+				if e.lastEvent.Event.IncidentKey == incident.IncidentKey {
+					continue
+				}
+			}
 			// workaround for https://github.com/PagerDuty/go-pagerduty/issues/218
 			contextLogger := log.WithField("incident", incident.ID)
 			pd_event := PagerdutyEvent{&incident, "pagerduty"}

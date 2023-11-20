@@ -10,6 +10,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/scram"
 	"github.com/sirupsen/logrus"
+	"github.com/webdevops/pagerduty2es/exporter"
 )
 
 type KafkaSink struct {
@@ -54,15 +55,19 @@ func (k *KafkaSink) TlsConfig(opts *KafkaSinkOpts) *tls.Config {
 	return &tlsc
 }
 
-func (k *KafkaSink) Push(data []byte) error {
+func (k *KafkaSink) Push(data exporter.Event) error {
+	incidentBytes := data.Data()
+	var event exporter.Event
+	json.Unmarshal(incidentBytes, event)
 	var incident pagerduty.Incident
-	json.Unmarshal(data, &incident)
+	json.Unmarshal(event.Data(), &incident)
+	inc_json, _ := json.Marshal(incidentBytes)
 	logrus.Debugf("Pushing event %s to %s/%s", incident.IncidentKey, k.client.Addr, k.client.Topic)
 	err := k.client.WriteMessages(
 		*k.opts.Context,
 		kafka.Message{
 			Key:   []byte("message"),
-			Value: data,
+			Value: inc_json,
 		},
 	)
 	return err
