@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -180,7 +181,7 @@ func (e *Exporter) processItems() bool {
 			}
 		}
 
-		event.PushedCB()(event.Incident.IncidentKey)
+		event.PushedCB()(fmt.Sprintf("%v", event.Incident.IncidentNumber))
 
 		e.Queue.Done(event)
 

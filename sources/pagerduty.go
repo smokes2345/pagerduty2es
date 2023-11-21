@@ -37,7 +37,7 @@ type (
 )
 
 func (pde PagerdutyEvent) Id() string {
-	return fmt.Sprintf("%s-%s", pde.Source, pde.Incident.ID)
+	return fmt.Sprintf("%s-%s", pde.Source.Name, pde.Incident.ID)
 }
 
 func (pde *PagerdutyEvent) String() string {
@@ -71,8 +71,11 @@ func (e *PagerdutyEventSource) EventProcessedCallback(event_id string) {
 			":i": {
 				S: aws.String(event_id),
 			},
+			":s": {
+				S: aws.String(e.Name),
+			},
 		},
-		UpdateExpression: aws.String("set checkpoint = :i"),
+		UpdateExpression: aws.String("set checkpoint = :i where source = :s"),
 	}
 	_, err := e.Checkpoint.Database.UpdateItem(&update)
 	if err != nil {
@@ -87,8 +90,40 @@ func (e *PagerdutyEventSource) Init(token string, window time.Duration, httpClie
 	aws_client := session.Must(session.NewSession())
 	e.Checkpoint = &PagerdutyEventSourceCheckpoint{
 		Database: dynamodb.New(aws_client),
+		Table:    "pagerduty_checkpoint",
+	}
+	tableCreateInput := dynamodb.CreateTableInput{
+		TableName: &e.Checkpoint.Table,
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("source"),
+				AttributeType: aws.String("S"),
+			},
+			// {
+			// 	AttributeName: aws.String("checkpoint"),
+			// 	AttributeType: aws.String("S"),
+			// },
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("source"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(10),
+			WriteCapacityUnits: aws.Int64(10),
+		},
 	}
 
+	_, err := e.Checkpoint.Database.DescribeTable(&dynamodb.DescribeTableInput{TableName: &e.Checkpoint.Table})
+	if err != nil {
+		log.Warningf("Error retriving table %s: %s", e.Checkpoint.Table, err)
+		_, err = e.Checkpoint.Database.CreateTable(&tableCreateInput)
+		if err != nil {
+			log.Fatalf("Could not create table %s", e.Checkpoint.Table)
+		}
+	}
 	// user, _ := e.pagerdutyClient.GetCurrentUserWithContext(e.ctx, pagerduty.GetCurrentUserOptions{})
 	// e.Name = user.Name
 }
