@@ -25,8 +25,9 @@ type (
 		Name               string
 	}
 	PagerdutyEvent struct {
-		Event  *pagerduty.Incident
-		Source string
+		Incident *pagerduty.Incident
+		Source   PagerdutyEventSource
+		// PushedCB func(string)
 	}
 	PagerdutyEventSourceCheckpoint struct {
 		Database *dynamodb.DynamoDB
@@ -35,8 +36,8 @@ type (
 	}
 )
 
-func (pde *PagerdutyEvent) Id() string {
-	return fmt.Sprintf("%s-%s", pde.Source, pde.Event.ID)
+func (pde PagerdutyEvent) Id() string {
+	return fmt.Sprintf("%s-%s", pde.Source, pde.Incident.ID)
 }
 
 func (pde *PagerdutyEvent) String() string {
@@ -48,11 +49,15 @@ func (pde *PagerdutyEvent) String() string {
 // }
 
 func (pde PagerdutyEvent) Data() []byte {
-	pde_json, err := json.Marshal(pde.Event)
+	pde_json, err := json.Marshal(pde.Incident)
 	if err != nil {
 		log.Warnf("Error decoding event %s: %s", pde.Id(), err)
 	}
 	return []byte(pde_json)
+}
+
+func (pde PagerdutyEvent) PushedCB() func(string) {
+	return pde.Source.EventProcessedCallback
 }
 
 func (e *PagerdutyEventSource) EventProcessedCallback(event_id string) {
@@ -97,7 +102,7 @@ func (e *PagerdutyEventSource) ScrapeEvents(queue *workqueue.Type) {
 
 	since := time.Now().Add(-*e.pagerdutyDateRange).Format(time.RFC3339)
 	if e.lastEvent != nil {
-		since = e.lastEvent.Event.CreatedAt
+		since = e.lastEvent.Incident.CreatedAt
 	}
 	listOpts := pagerduty.ListIncidentsOptions{
 		Since: since,
@@ -115,13 +120,13 @@ func (e *PagerdutyEventSource) ScrapeEvents(queue *workqueue.Type) {
 
 		for _, incident := range incidentResponse.Incidents {
 			if e.lastEvent != nil {
-				if e.lastEvent.Event.IncidentKey == incident.IncidentKey {
+				if e.lastEvent.Incident.IncidentKey == incident.IncidentKey {
 					continue
 				}
 			}
 			// workaround for https://github.com/PagerDuty/go-pagerduty/issues/218
 			contextLogger := log.WithField("incident", incident.ID)
-			pd_event := PagerdutyEvent{&incident, "pagerduty"}
+			pd_event := PagerdutyEvent{&incident, *e}
 			// e.indexIncident(incident, esIndexRequestChannel)
 
 			// listLogOpts := pagerduty.ListIncidentLogEntriesOptions{}

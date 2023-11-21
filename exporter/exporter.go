@@ -19,6 +19,7 @@ type Event interface {
 	//String() string
 	//Json() []byte
 	Data() []byte
+	PushedCB() func(key string)
 }
 
 type EventSource interface {
@@ -168,22 +169,24 @@ func (e *Exporter) runScrape() {
 
 func (e *Exporter) processItems() bool {
 	for {
-		event, shutdown := e.Queue.Get()
-
+		untyped_event, shutdown := e.Queue.Get()
+		event := untyped_event.(sources.PagerdutyEvent)
 		//bytes, _ := json.Marshal(event)
 
 		for _, s := range e.Sinks {
-			err := s.Push(event.(sources.PagerdutyEvent))
+			err := s.Push(event)
 			if err != nil {
 				log.Warnf("Error pushing to %T: %s", s, err)
 			}
 		}
 
+		event.PushedCB()(event.Incident.IncidentKey)
+
 		e.Queue.Done(event)
 
-		for _, src := range e.Sources {
-			src.EventProcessedCallback(event.(*sources.PagerdutyEvent).Id())
-		}
+		// for _, src := range e.Sources {
+		// 	src.EventProcessedCallback(event.Id())
+		// }
 
 		if shutdown {
 			return true

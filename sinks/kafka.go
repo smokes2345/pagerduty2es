@@ -11,6 +11,7 @@ import (
 	"github.com/segmentio/kafka-go/sasl/scram"
 	"github.com/sirupsen/logrus"
 	"github.com/webdevops/pagerduty2es/exporter"
+	"github.com/webdevops/pagerduty2es/sources"
 )
 
 type KafkaSink struct {
@@ -59,8 +60,12 @@ func (k *KafkaSink) Push(data exporter.Event) error {
 	incidentBytes := data.Data()
 	var event exporter.Event
 	json.Unmarshal(incidentBytes, event)
-	var incident pagerduty.Incident
-	json.Unmarshal(event.Data(), &incident)
+	var incident *pagerduty.Incident
+	incident = data.(sources.PagerdutyEvent).Incident
+	// err := json.Unmarshal(event.Data(), incident)
+	// if err != nil {
+	// 	log.Errorf("error unmarshalling incident")
+	// }
 	inc_json, _ := json.Marshal(incidentBytes)
 	logrus.Debugf("Pushing event %s to %s/%s", incident.IncidentKey, k.client.Addr, k.client.Topic)
 	err := k.client.WriteMessages(
