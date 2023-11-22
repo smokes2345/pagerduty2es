@@ -42,7 +42,7 @@ func main() {
 	initArgparser()
 
 	log.Infof("starting pagerduty2es v%s (%s; %s; by %v)", gitTag, gitCommit, runtime.Version(), author)
-	log.Info(string(opts.GetJson()))
+	// log.Info(string(opts.GetJson())) // there's sensitive stuff in here
 
 	e = exporter.Exporter{}
 	e.ScrapeTime = opts.ScrapeTime

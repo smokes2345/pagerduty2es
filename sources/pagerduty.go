@@ -45,6 +45,10 @@ func (pde *PagerdutyEvent) String() string {
 	return pde.Id()
 }
 
+func (pde PagerdutyEvent) GetID() string {
+	return pde.Incident.APIObject.ID
+}
+
 // func (pde *PagerdutyEvent) Data() *pagerduty.Incident {
 // 	return pde.Event
 // }
@@ -137,15 +141,19 @@ func (e *PagerdutyEventSource) Init(token string, window time.Duration, httpClie
 		if records.Item == nil {
 			log.Warningf("No checkpoint value found for %s", e.Name)
 		} else {
-			var event_id string
-			err := dynamodbattribute.UnmarshalMap(records.Item, event_id)
+			type Record struct {
+				Checkpoint string
+				Source     string
+			}
+			var inc_record Record
+			err := dynamodbattribute.UnmarshalMap(records.Item, &inc_record)
 			if err != nil {
 				log.Warning("Could not unmarshall checkpoint value", err)
 				return
 			}
-			incident, err := e.pagerdutyClient.GetIncidentWithContext(e.ctx, event_id)
+			incident, err := e.pagerdutyClient.GetIncidentWithContext(e.ctx, inc_record.Checkpoint)
 			if err != nil {
-				log.Warningf("Could not get incident with ID %s", event_id)
+				log.Warningf("Could not get incident with ID %s", inc_record)
 			} else {
 				e.lastEvent = &PagerdutyEvent{Incident: incident, Source: *e}
 			}
@@ -183,12 +191,12 @@ func (e *PagerdutyEventSource) ScrapeEvents(queue *workqueue.Type) {
 
 		for _, incident := range incidentResponse.Incidents {
 			if e.lastEvent != nil {
-				if e.lastEvent.Incident.IncidentKey == incident.IncidentKey {
+				if e.lastEvent.GetID() == incident.APIObject.ID {
 					continue
 				}
 			}
 			// workaround for https://github.com/PagerDuty/go-pagerduty/issues/218
-			contextLogger := log.WithField("incident", incident.ID)
+			contextLogger := log.WithField("incident", incident.APIObject.ID)
 			pd_event := PagerdutyEvent{&incident, *e}
 			// e.indexIncident(incident, esIndexRequestChannel)
 

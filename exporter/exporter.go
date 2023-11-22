@@ -2,7 +2,6 @@ package exporter
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
@@ -91,7 +90,7 @@ func (e *Exporter) sleepUntilNextCollection() {
 }
 
 func (e *Exporter) runScrape() {
-	var wgProcess sync.WaitGroup
+	//var wgProcess sync.WaitGroup
 	log.Info("starting scrape")
 
 	// since := time.Now().Add(-*e.pagerdutyDateRange).Format(time.RFC3339)
@@ -103,12 +102,12 @@ func (e *Exporter) runScrape() {
 
 	// esIndexRequestChannel := make(chan *esapi.IndexRequest, e.elasticsearchBatchCount)
 
-	startTime := time.Now()
+	//startTime := time.Now()
 
 	// // index from channel
-	wgProcess.Add(1)
+	//wgProcess.Add(1)
 	go func() {
-		defer wgProcess.Done()
+		//defer wgProcess.Done()
 
 		for _, src := range e.Sources {
 			go src.ScrapeEvents(&e.Queue)
@@ -161,11 +160,11 @@ func (e *Exporter) runScrape() {
 	// }
 	// close(esIndexRequestChannel)
 
-	wgProcess.Wait()
+	//wgProcess.Wait()
 
-	duration := time.Since(startTime)
+	//duration := time.Since(startTime)
 	// e.prometheus.duration.WithLabelValues().Set(duration.Seconds())
-	log.WithField("duration", duration.String()).Info("finished scraping")
+	//log.WithField("duration", duration.String()).Info("finished scraping")
 }
 
 func (e *Exporter) processItems() bool {
@@ -181,7 +180,7 @@ func (e *Exporter) processItems() bool {
 			}
 		}
 
-		event.PushedCB()(fmt.Sprintf("%v", event.Incident.IncidentNumber))
+		event.PushedCB()(fmt.Sprintf("%v", event.GetID()))
 
 		e.Queue.Done(event)
 
