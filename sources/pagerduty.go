@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/util/workqueue"
 )
@@ -71,15 +72,12 @@ func (e *PagerdutyEventSource) EventProcessedCallback(event_id string) {
 			":i": {
 				S: aws.String(event_id),
 			},
-			":s": {
-				S: aws.String(e.Name),
-			},
 		},
-		UpdateExpression: aws.String("set checkpoint = :i where source = :s"),
+		UpdateExpression: aws.String("set checkpoint = :i"),
 	}
 	_, err := e.Checkpoint.Database.UpdateItem(&update)
 	if err != nil {
-		log.Warningf("Could not checkpoint PD event %s", event_id)
+		log.Warningf("Could not checkpoint PD event %s: %s", event_id, err)
 	}
 }
 
@@ -123,7 +121,37 @@ func (e *PagerdutyEventSource) Init(token string, window time.Duration, httpClie
 		if err != nil {
 			log.Fatalf("Could not create table %s", e.Checkpoint.Table)
 		}
+	} else {
+		itemInput := dynamodb.GetItemInput{
+			Key: map[string]*dynamodb.AttributeValue{
+				"source": {
+					S: aws.String(e.Name),
+				},
+			},
+			TableName: &e.Checkpoint.Table,
+		}
+		records, err := e.Checkpoint.Database.GetItem(&itemInput)
+		if err != nil {
+			log.Warningf("Error retrieving bookmark for source %s: %s", e.Name, err)
+		}
+		if records.Item == nil {
+			log.Warningf("No checkpoint value found for %s", e.Name)
+		} else {
+			var event_id string
+			err := dynamodbattribute.UnmarshalMap(records.Item, event_id)
+			if err != nil {
+				log.Warning("Could not unmarshall checkpoint value", err)
+				return
+			}
+			incident, err := e.pagerdutyClient.GetIncidentWithContext(e.ctx, event_id)
+			if err != nil {
+				log.Warningf("Could not get incident with ID %s", event_id)
+			} else {
+				e.lastEvent = &PagerdutyEvent{Incident: incident, Source: *e}
+			}
+		}
 	}
+
 	// user, _ := e.pagerdutyClient.GetCurrentUserWithContext(e.ctx, pagerduty.GetCurrentUserOptions{})
 	// e.Name = user.Name
 }

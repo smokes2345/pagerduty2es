@@ -61,7 +61,7 @@ func main() {
 		e.Sinks = append(e.Sinks, &ks)
 	}
 
-	pd := sources.PagerdutyEventSource{}
+	pd := sources.PagerdutyEventSource{Name: "pagerduty"}
 	pd.Init(opts.PagerDuty.AuthToken, opts.PagerDuty.Since, http.DefaultClient)
 	e.Sources = append(e.Sources, &pd)
 	//ctx := context.Background()
